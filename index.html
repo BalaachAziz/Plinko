@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plinko Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(180deg, #1e1e2f, #121212);
+            color: #fff;
+        }
+
+        canvas {
+            margin-top: 20px;
+            background: #2a2a3b;
+            border-radius: 10px;
+        }
+
+        .controls {
+            margin-top: 20px;
+        }
+
+        .scoreboard {
+            margin-top: 20px;
+            font-size: 16px;
+        }
+
+        .chart {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+
+        .multiplier {
+            font-size: 14px;
+            text-align: center;
+            padding: 5px;
+            color: white;
+        }
+
+        .money-bar {
+            font-size: 20px;
+            margin-top: 10px;
+            text-align: center;
+        }
+
+        .bet-controls {
+            margin-top: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Plinko Game</h1>
+    <div class="money-bar">Cash: $<span id="cash">1000</span></div>
+    <div class="bet-controls">
+        <label for="betAmount">Bet Amount: $</label>
+        <input type="number" id="betAmount" value="10" min="1">
+        <button onclick="placeBet()">Place Bet</button>
+    </div>
+    <canvas id="plinkoCanvas" width="600" height="700"></canvas>
+    <canvas id="chartCanvas" width="0" height="0"></canvas>
+
+    <div class="controls">
+        <button onclick="setBallColor('red')">Select Red Ball</button>
+        <button onclick="setBallColor('blue')">Select Blue Ball</button>
+        <p>Click on the canvas to drop the ball!</p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('plinkoCanvas');
+        const chartCanvas = document.getElementById('chartCanvas');
+        const ctx = canvas.getContext('2d');
+        const chartCtx = chartCanvas.getContext('2d');
+
+        const redScoreElement = document.getElementById('redScore');
+        const blueScoreElement = document.getElementById('blueScore');
+        const cashElement = document.getElementById('cash');
+        const betAmountInput = document.getElementById('betAmount');
+
+        const dropPoints = Array.from({ length: 11 }, (_, i) => 60 + i * 48);
+        const multipliers = [0, 0.5, 1, 2, 5, 10, 5, 2, 1, 0.5, 0];
+        const colors = ['#ff4b5c', '#ff6347', '#ffd700', '#90ee90', '#00fa9a', '#ffcc00', '#00fa9a', '#90ee90', '#ffd700', '#ff6347', '#ff4b5c'];
+
+        let totalScores = { red: 1, blue: 1 };
+        let selectedColor = 'red';
+        let cash = 1000;
+        const bouncingBoxes = Array(dropPoints.length).fill(0);
+
+        const pegs = [];
+        for (let row = 1; row <= 10; row++) {
+            const y = row * 50;
+            for (let col = 0; col < 12; col++) {
+                const x = col * 48 + (row % 2 === 0 ? 24 : 0);
+                if (x > 0 && x < canvas.width) {
+                    pegs.push({ x, y });
+                }
+            }
+        }
+
+        function drawBoard() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            dropPoints.forEach((x, i) => {
+                const boxOffset = bouncingBoxes[i];
+                ctx.beginPath();
+                ctx.rect(x - 20, canvas.height - 70 + boxOffset, 40, 40);
+                ctx.fillStyle = colors[i];
+                ctx.fill();
+
+                ctx.fillStyle = '#fff';
+                ctx.font = '16px Arial';
+                ctx.fillText(`${multipliers[i]}x`, x - 12, canvas.height - 45 + boxOffset);
+            });
+
+            pegs.forEach(peg => {
+                ctx.beginPath();
+                ctx.arc(peg.x, peg.y, 5, 0, Math.PI * 2);
+                ctx.fillStyle = '#666';
+                ctx.fill();
+            });
+        }
+
+        function setBallColor(color) {
+            selectedColor = color;
+        }
+
+        function dropBall(startX, color, bet) {
+            let x = startX;
+            let y = 0;
+            const radius = 10;
+            const gravity = 0.3;
+            let dx = 0;
+            let dy = 0;
+
+            function animate() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawBoard();
+
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.fill();
+                ctx.closePath();
+
+                dy += gravity;
+                y += dy;
+
+                pegs.forEach(peg => {
+                    const dist = Math.hypot(peg.x - x, peg.y - y);
+                    if (dist < radius + 5) {
+                        dy = -Math.abs(dy) * 0.7;
+                        dx += (x > peg.x ? 1 : -1) * 0.8;
+
+                        ctx.beginPath();
+                        ctx.arc(peg.x, peg.y, 10, 0, Math.PI * 2);
+                        ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                        ctx.fill();
+                    }
+                });
+
+                dx *= 0.98;
+                x += dx;
+
+                if (y < canvas.height - 70) {
+                    requestAnimationFrame(animate);
+                } else {
+                    let landedIndex = dropPoints.findIndex(point => Math.abs(point - x) < 24);
+                    if (landedIndex !== -1) {
+                        const winnings = bet * multipliers[landedIndex];
+                        cash += winnings;
+                        totalScores[color] += multipliers[landedIndex];
+                        updateCash();
+                        animateBox(landedIndex);
+                    }
+                    drawChart();
+                }
+            }
+
+            animate();
+        }
+
+        function animateBox(index) {
+            let frame = 0;
+            const maxFrames = 15;
+            const amplitude = 10;
+
+            function bounce() {
+                if (frame >= maxFrames) {
+                    bouncingBoxes[index] = 0;
+                    drawBoard();
+                    return;
+                }
+
+                bouncingBoxes[index] = Math.sin((frame / maxFrames) * Math.PI) * -amplitude;
+                frame++;
+                drawBoard();
+                requestAnimationFrame(bounce);
+            }
+
+            bounce();
+        }
+
+        function updateScoreboard() {
+            redScoreElement.textContent = totalScores.red;
+            blueScoreElement.textContent = totalScores.blue;
+        }
+
+        function updateCash() {
+            cashElement.textContent = cash;
+        }
+
+        function placeBet() {
+            const betAmount = parseInt(betAmountInput.value);
+            if (betAmount > cash || betAmount <= 0) {
+                alert("Invalid bet amount.");
+                return;
+            }
+            cash -= betAmount;
+            updateCash();
+        }
+
+        canvas.addEventListener('click', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const betAmount = parseInt(betAmountInput.value);
+            dropBall(x, selectedColor, betAmount);
+        });
+
+        drawBoard();
+        drawChart();
+    </script>
+</body>
+</html>
